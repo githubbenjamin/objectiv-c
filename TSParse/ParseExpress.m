@@ -67,11 +67,25 @@
 @end
 
 
+
 @implementation ExpParse
 
 //enum e_var_type { e_string = 0, e_number};
 @synthesize g_vars;
 //@synthesize l_vars;
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        NSSet* oss1 = [[NSSet alloc]initWithObjects:@"(",@")", nil];
+        NSSet* oss2 = [[NSSet alloc]initWithObjects:@"+",@"-",@"*",@"/" ,nil];
+        NSSet* oss3 = [[NSSet alloc]initWithObjects:@"==",@">",@"<",@">=",@"<=", nil];
+        NSSet* oss4 = [[NSSet alloc]initWithObjects:@"=", nil];
+        _operateSymbolSets = [[NSArray alloc]initWithObjects:oss1,oss2,oss3,oss4, nil];
+    }
+    return self;
+}
 
 -(int) parseScriptFile:(NSString *)filePath{
     
@@ -107,12 +121,14 @@
 
 -(int) parseMainBlock:(NSString *)ep withLocalVars:(NSMutableDictionary*) l_vars{
 
-    
     //
     NSArray* logical_lines = [ep componentsSeparatedByString: @";"];
     for (NSString* ll in logical_lines) {
-        
-        
+        NSString* oneLogicalLine = [ll stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        int rst_oll = [self parseLogicalLine: oneLogicalLine withLocalVars: l_vars];
+        if (rst_oll!=0) {
+            return rst_oll;
+        }
     }
     
     return 0;
@@ -122,32 +138,268 @@
     NSMutableArray* operaterSymbols = [NSMutableArray new];
     NSMutableArray* valueVars = [NSMutableArray new];
     
-    NSSet* oss1 = [[NSSet alloc]initWithObjects:@"(",@")", nil];
-    NSSet* oss2 = [[NSSet alloc]initWithObjects:@"+",@"-",@"*",@"/" ,nil];
-    NSSet* oss3 = [[NSSet alloc]initWithObjects:@"==",@">",@"<",@">=",@"<=", nil];
-    NSSet* oss4 = [[NSSet alloc]initWithObjects:@"=", nil];
-    
     if (![self islegalQuotationMarksForExp:express SeprateOperateTo:operaterSymbols ValueVarTo:valueVars]) {
         NSLog(@"not legal for logical line");
         return -1;
     }
     
-    
+    if ([[operaterSymbols firstObject]isEqualToString:@"="]) {
+        T_Var* tmp_var = [T_Var new];
+        tmp_var.name_ = [valueVars firstObject];
+        NSMutableArray* value = [NSMutableArray new];
+        [operaterSymbols removeObject:[operaterSymbols firstObject]];
+        [valueVars removeObject:[valueVars firstObject]];
+        int rst = [self processAndAssignResultTo:value withOperateSymbols:operaterSymbols valueAndVar:valueVars localVars:localVars];
+        return rst;
+    }
     
     //
     
-//    if () {
-//        
-//    }
     
     return 0;
 }
 
--(int)process:(NSMutableArray*)operateSymbols valueAndVar:(NSMutableArray*)valueVars localVars:(NSMutableDictionary*)localVars{
+-(int)processAndAssignResultTo:(NSMutableArray*)value
+            withOperateSymbols:(NSMutableArray*)operateSymbols
+                   valueAndVar:(NSMutableArray*)valueVars
+                     localVars:(NSMutableDictionary*)localVars{
+//-(int)process:(NSMutableArray*)operateSymbols valueAndVar:(NSMutableArray*)valueVars localVars:(NSMutableDictionary*)localVars{
     
     
-    return 0;
+    // process
+//    if (value.count==1 && operateSymbols.count==0) {
+//        return 0;
+//    }
+    if (operateSymbols.count == 0) {
+        return (int)valueVars.count;
+    }
+    
+    NSString* os = [operateSymbols firstObject];
+    // for 4 kink of operate symbol
+    
+    // "(" ")"
+    
+    // find the outest ( )
+    NSInteger bracket_start = -1;
+    NSInteger bracket_end = -1;
+    NSInteger nested_count = 0;
+    for (int i=0; i<operateSymbols.count; i++) {
+        if ([@"(" isEqualToString:os]) {
+            if (bracket_start < 0) {
+                bracket_start=i;
+            }else{
+                nested_count++;
+            }
+            
+        }
+        if ([@")" isEqualToString:os]) {
+            if (bracket_start < 0) {
+                NSLog(@"process ( or ) error.");
+                return -1;
+            }
+            if (nested_count==0) {
+                bracket_end = i;
+            }else{
+                nested_count--;
+            }
+        }
+    }
+    
+    if (bracket_start>=0&&bracket_end>0&&bracket_start<bracket_end) {
+        NSMutableArray* value_tmp_p = [NSMutableArray new]; // value temp privali
+        NSMutableArray* os_tmp_p = [NSMutableArray new];
+        NSMutableArray* vv_tmp_p = [NSMutableArray new];
+        
+        NSMutableArray* value_tmp_l = [NSMutableArray new]; // value temp left
+        NSMutableArray* os_tmp_l = [NSMutableArray new];
+        NSMutableArray* vv_tmp_l = [NSMutableArray new];
+        
+        for (NSInteger i=0; i<operateSymbols.count; i++) {
+            if (i>bracket_start && i<bracket_end) {
+                [os_tmp_p addObject: operateSymbols[i]];
+            }else{
+                [os_tmp_l addObject:operateSymbols[i]];
+            }
+            
+        }
+        for (NSInteger i=0; i<valueVars.count; i++) {
+            if (i>=bracket_start && i<=bracket_end-operateSymbols.count+valueVars.count) {
+                [vv_tmp_p addObject:valueVars[i]];
+            }else{
+                [vv_tmp_l addObject:valueVars[i]];
+            }
+            
+        }
+        
+        int rst_tmp_p = [self processAndAssignResultTo:value_tmp_p withOperateSymbols:os_tmp_p valueAndVar:vv_tmp_p localVars:localVars];
+        if (rst_tmp_p==0) {
+            if (value_tmp_p.count!=1) {
+                NSLog(@"process result error");
+                return -1;
+            }
+            [vv_tmp_l insertObject:[value_tmp_p firstObject] atIndex:bracket_start];
+            int rst_tmp_l = [self processAndAssignResultTo:value_tmp_l withOperateSymbols:os_tmp_l valueAndVar:vv_tmp_l localVars:localVars];
+            [value addObject:value_tmp_l];
+            return rst_tmp_l;
+            
+        }else{
+            return rst_tmp_p;
+        }
+    }
+    
+    if (bracket_start!=-1 || bracket_start!=-1) {
+        NSLog(@"brackets error");
+        return -1;
+    }
+    
+    
+    // no bracket below
+    NSInteger index_mdm = -1; // index of multiply divid mode, * / %
+    NSSet* mdm_set = [[NSSet alloc]initWithObjects:@"*",@"/",@"%", nil];
+    for (NSInteger i=0; i<operateSymbols.count; i++) {
+        if ([mdm_set containsObject:operateSymbols[i]]) {
+            index_mdm = i;
+        }
+    }
+    
+    if (index_mdm >= 0) {
+        if (valueVars.count<2) {
+            NSLog(@"process error, stack: %@; %@", operateSymbols, valueVars);
+            return -1;
+        }
+        NSString* stringValue = nil;
+        NSString* valueVar1 = valueVars[0];
+        NSString* valueVar2 = valueVars[1];
+        if ([self isVarFormat:valueVar1]) {
+            valueVar1 = [NSString stringWithFormat:@"%@", [self valueOfVarByName:valueVar1 inLocalVar:localVars]];
+            if (!valueVar1) {
+                NSLog(@"no assign var '%@'", valueVar1);
+                return -1;
+            }
+        }
+        if ([self isVarFormat:valueVar2]) {
+            valueVar2 = [NSString stringWithFormat:@"%@", [self valueOfVarByName:valueVar2 inLocalVar:localVars] ];
+            if (!valueVar2) {
+                NSLog(@"no assign var '%@'", valueVar2);
+                return -1;
+            }
+        }
+        
+        if ([@"*" isEqualToString: operateSymbols[index_mdm]] ) {
+            
+            if ([self isNumberFormat:valueVar1]&&[self isNumberFormat:valueVar2]) {
+                if ([self isMatchRegularExpression:@"\\d" forString:valueVar1] && [self isMatchRegularExpression:@"\\d" forString:valueVar2]) {
+                    stringValue = [NSString stringWithFormat:@"%ld", [valueVar1 integerValue]*[valueVar2 integerValue]];
+                }else{
+                    stringValue = [NSString stringWithFormat:@"%f", [valueVar1 floatValue]*[valueVar2 floatValue]];
+                }
+                
+            }
+        }else if ([@"/" isEqualToString: operateSymbols[index_mdm]] ) {
+            
+            if ([self isNumberFormat:valueVar1]&&[self isNumberFormat:valueVar2]) {
+                if ([self isMatchRegularExpression:@"\\d" forString:valueVar1] && [self isMatchRegularExpression:@"\\d" forString:valueVar2]) {
+                    stringValue = [NSString stringWithFormat:@"%ld", [valueVar1 integerValue]/[valueVar2 integerValue]];
+                }else{
+                    stringValue = [NSString stringWithFormat:@"%f", [valueVar1 floatValue]/[valueVar2 floatValue]];
+                }
+                
+            }
+        }else if ([@"%" isEqualToString: operateSymbols[index_mdm]] ) {
+            
+            if ([self isNumberFormat:valueVar1]&&[self isNumberFormat:valueVar2]) {
+                if ([self isMatchRegularExpression:@"\\d" forString:valueVar1] && [self isMatchRegularExpression:@"\\d" forString:valueVar2]) {
+                    stringValue = [NSString stringWithFormat:@"%ld", [valueVar1 integerValue]%[valueVar2 integerValue]];
+                    
+                }else{
+                    return -1;
+                }
+                
+            }
+        }
+        
+        //
+        [operateSymbols removeObject:[operateSymbols firstObject]];
+        [valueVars removeObject:[valueVars firstObject]];
+        [valueVars removeObject:[valueVars firstObject]];
+        [valueVars insertObject:stringValue atIndex:0];
+        int mdm_rst = [self processAndAssignResultTo:value withOperateSymbols:operateSymbols valueAndVar:valueVars localVars:localVars];
+        return mdm_rst;
+    }
+    
+    // + -
+    if (operateSymbols.count == 0) {
+        NSLog(@"internal error 001");
+        return -1;
+    }
+    if (valueVars.count<2) {
+        NSLog(@"process error, stack: %@; %@", operateSymbols, valueVars);
+        return -1;
+    }
+    NSString* valueString = nil;
+    NSString* valueVar1 = valueVars[0];
+    NSString* valueVar2 = valueVars[1];
+    if ([self isVarFormat:valueVar1]) {
+        valueVar1 = [NSString stringWithFormat:@"%@", [self valueOfVarByName:valueVar1 inLocalVar:localVars]];
+        if (!valueVar1) {
+            NSLog(@"no assign var '%@'", valueVar1);
+            return -1;
+        }
+    }
+    if ([self isVarFormat:valueVar2]) {
+        valueVar2 = [NSString stringWithFormat:@"%@", [self valueOfVarByName:valueVar2 inLocalVar:localVars] ];
+        if (!valueVar2) {
+            NSLog(@"no assign var '%@'", valueVar2);
+            return -1;
+        }
+    }
+    
+    if ([operateSymbols[0] isEqualToString:@"+"]) {
+        if ([self isNumberFormat:valueVar1] && [self isNumberFormat:valueVar2]) {
+            if ([self isMatchRegularExpression:@"\\d+" forString:valueVar1] && [self isMatchRegularExpression:@"\\d+" forString:valueVar2]) {
+                valueString = [NSString stringWithFormat:@"%ld", valueVar1.integerValue+valueVar2.integerValue];
+            }else{
+                valueString = [NSString stringWithFormat:@"%f", valueVar1.floatValue+valueVar2.floatValue];
+            }
+        }else if([self isStringFormat:valueVar1] && [self isStringFormat:valueVar2]){
+            
+            valueString = [NSString stringWithFormat:@"\"%@%@\"", [valueVar1 substringWithRange:NSMakeRange(1, valueVar1.length-2)],[valueVar2 substringWithRange:NSMakeRange(1, valueVar2.length-2)] ];
+        }else{
+            NSLog(@"internal error, stack: %@", valueVar2);
+            return -1;
+        }
+    }else if ([operateSymbols[0] isEqualToString:@"-"]){
+        if ([self isNumberFormat:valueVar1] && [self isNumberFormat:valueVar2]) {
+            if ([self isMatchRegularExpression:@"\\d+" forString:valueVar1] && [self isMatchRegularExpression:@"\\d+" forString:valueVar2]) {
+                valueString = [NSString stringWithFormat:@"%ld", valueVar1.integerValue-valueVar2.integerValue];
+            }else{
+                valueString = [NSString stringWithFormat:@"%f", valueVar1.floatValue-valueVar2.floatValue];
+            }
+        }else{
+            NSLog(@"internal error, stack: %@", valueVar2);
+            return -1;
+        }
+    }else{
+        NSLog(@"internal error, not recognise operate: %@", operateSymbols[0]);
+        return -1;
+    }
+    
+    
+    [operateSymbols removeObject:[operateSymbols firstObject]];
+    [valueVars removeObject:[valueVars firstObject]];
+    [valueVars removeObject:[valueVars firstObject]];
+    [valueVars insertObject:valueString atIndex:0];
+    if (operateSymbols.count>0) {
+        int mdm_rst = [self processAndAssignResultTo:value withOperateSymbols:operateSymbols valueAndVar:valueVars localVars:localVars];
+        return mdm_rst;
+    }else{
+        [value insertObject:valueString atIndex:0];
+        return 0;
+    }
+    
+//    return 0;
 }
+
 
 -(id) resultOfExpress:(NSString*)ep withLocalVars:(NSMutableDictionary*)l_vars{
     
@@ -157,7 +409,6 @@
 -(id) resultOfExpress2:(NSArray*)ep withLocalVars:(NSMutableDictionary*)l_vars{
     NSMutableArray* operaterSymbols = [NSMutableArray new];
     NSMutableArray* valueVars = [NSMutableArray new];
-    
     
     
     return @"abc";
@@ -187,7 +438,7 @@
      3. > < >=, <=
      4. =
      */
-    NSSet* operateSet = [NSSet setWithObjects:@"(",@")",@"+",@"-",@"*",@"/",@"==",@">",@"<",@">=",@"<=",@"=", nil];
+    NSSet* operateSet = [NSSet setWithObjects:@"(",@")",@"+",@"-",@"*",@"/",@"%",@"==",@">",@"<",@">=",@"<=",@"=", nil];
     NSSet* operateSet2 = [NSSet setWithObjects:@"==",@">",@"<",@">=",@"<=",@"=", nil];
 //    NSMutableArray* operates = [NSMutableArray new];
     
@@ -270,19 +521,81 @@
     
     return YES;
 }
-    
+
+-(id) valueOfVarByName:(NSString*)varName inLocalVar:(NSMutableDictionary*)localVars{
+    if ([self isVarFormat:varName]) {
+        T_Var* var_temp = [localVars objectForKey:varName];
+        if (!var_temp) {
+            NSMutableDictionary* sup_vars_tmp = [localVars objectForKey:@"*"];
+            if (!sup_vars_tmp) {
+//                NSLog(@"no assign var '%@'", varName);
+                return nil;
+            }else{
+                return [self valueOfVarByName:varName inLocalVar:sup_vars_tmp];
+            }
+        }else{
+            return var_temp.value_;
+        }
+    }else{
+        return nil;
+    }
+    return @"";
+}
+
 -(BOOL) isVarFormat:(NSString*) vf{
 //    if () {
 //        
 //    }
-    return YES;
+    return [self isMatchRegularExpression:@"^[^0-9]\\w*$" forString:vf];
+}
+
+-(BOOL)isStringFormat:(NSString*) string{
+    // strim
+    if ([string hasPrefix:@"\""] || [string hasSuffix:@"\""]) {
+        return YES;
+    }else{
+        return NO;
+    }
+    
+}
+
+-(BOOL)isNumberFormat:(NSString*) string{
+    
+    return [self isMatchRegularExpression:@"^\\d+(\\.\\d+)?$" forString:string];
+}
+
+-(BOOL)isMatchRegularExpression:(NSString*)re forString:(NSString*)str{
+//    NSString *staString = [NSString stringWithUTF8String:"[self.label setText: @\"hello world\"];"];
+//    NSString *parten = @"(\\s)*(\\[)(\\s)*(self)(\\s)*(.)(\\s)*(label)(\\s)*(setText)(\\s)*(:)(\\s)*(@)(\\s)*(\".*\")(\\s)*(\\])(\\s)*(;)(\\s)*";
+    
+    NSError* error = NULL;
+    
+    NSRegularExpression *reg = [NSRegularExpression regularExpressionWithPattern:re options:nil error:&error];
+    
+    NSArray* match = [reg matchesInString:str options:NSMatchingCompleted range:NSMakeRange(0, [str length])];
+    
+    if (match.count != 0)
+    {
+//        for (NSTextCheckingResult *matc in match)
+//        {
+//            NSRange range = [matc range];
+//            NSLog(@"%lu,%lu,%@",(unsigned long)range.location,(unsigned long)range.length,[str substringWithRange:range]);
+//        }
+        return YES;
+    }
+    return NO;
 }
 
 -(void)test{
-    NSMutableArray* operates = [NSMutableArray new];
-    NSMutableArray* valueVars = [NSMutableArray new];
-    BOOL rst = [self islegalQuotationMarksForExp:@"abc + \"uuu9\" + efg + \"abc\"" SeprateOperateTo:operates ValueVarTo:valueVars];
-    NSLog(@"result:%@, operates:%@ valueVars:%@", rst?@"YES":@"NO", operates, valueVars);
+//    NSMutableArray* operates = [NSMutableArray new];
+//    NSMutableArray* valueVars = [NSMutableArray new];
+//    BOOL rst = [self islegalQuotationMarksForExp:@"abc + \"uuu9\" + efg + \"abc\"" SeprateOperateTo:operates ValueVarTo:valueVars];
+//    NSLog(@"result:%@, operates:%@ valueVars:%@", rst?@"YES":@"NO", operates, valueVars);
+    
+    NSLog(@"r:%@", [self isNumberFormat:@"213423.23423"]?@"YES":@"NO");
+    NSLog(@"r:%@", [self isNumberFormat:@"21342sdf3"]?@"YES":@"NO");
+    NSLog(@"r:%@", [self isStringFormat:@"213423.23423"]?@"YES":@"NO");
+    NSLog(@"r:%@", [self isVarFormat:@"abc"]?@"YES":@"NO");
     
 }
 @end
