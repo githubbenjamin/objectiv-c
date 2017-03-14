@@ -93,7 +93,8 @@
     NSMutableDictionary* local_vars_func = [NSMutableDictionary new];
     [local_vars_func setObject:g_vars forKey:@"*"]; // set super level envirenment
 #ifdef DEBUG
-    NSString* ep = @"var c = a + b;print(c)";
+    NSString* ep = @"a=1;b=2;var c = 2*(a+1) + b;print(c)";
+//    NSString* ep = @"a=\"asd\";b=\"ewuu\";var c = a + b;print(c)";
     
     T_Var * fnc01 = [T_Var new];
     fnc01.name_ = @"print";
@@ -117,7 +118,7 @@
     
     int rst_parseMain = [self parseMainBlock:ep withLocalVars:local_vars_func];
     return rst_parseMain;
-//    return 0;
+    //    return 0;
 }
 
 -(int) parseMainBlock:(NSString *)ep withLocalVars:(NSMutableDictionary*) l_vars{
@@ -145,7 +146,7 @@
     }
     
     // process =
-    if ([[operaterSymbols firstObject]isEqualToString:@"="]) {
+    if ([[operaterSymbols firstObject] isEqualToString:@"="]) {
         NSString* firstValueVar = [valueVars firstObject];
         if ([firstValueVar hasPrefix:@"var "]) {
             firstValueVar = [firstValueVar substringFromIndex:4];
@@ -163,18 +164,22 @@
         }
         tmp_var.value_ = [value firstObject];
         [localVars setObject:tmp_var forKey:tmp_var.name_];
+        NSLog(@"add one to localVar name:%@ value:%@", tmp_var.name_, tmp_var.value_);
         return rst;
     }
     
     // process if
     
+    
     // process for
+    
     
     // process while
     
     return 0;
 }
 
+// express
 -(int)processAndAssignResultTo:(NSMutableArray*)value
             withOperateSymbols:(NSMutableArray*)operateSymbols
                    valueAndVar:(NSMutableArray*)valueVars
@@ -186,9 +191,9 @@
     //    if (value.count==1 && operateSymbols.count==0) {
     //        return 0;
     //    }
-    if (operateSymbols.count == 0) {
-        return (int)valueVars.count;
-    }
+//    if (operateSymbols.count == 0) {
+//        return (int)valueVars.count;
+//    }
     
     NSString* os = [operateSymbols firstObject];
     // for 4 kink of operate symbol
@@ -200,7 +205,7 @@
     NSInteger bracket_end = -1;
     NSInteger nested_count = 0;
     for (int i=0; i<operateSymbols.count; i++) {
-        if ([@"(" isEqualToString:os]) {
+        if ([@"(" isEqualToString:operateSymbols[i]]) {
             if (bracket_start < 0) {
                 bracket_start=i;
             }else{
@@ -208,7 +213,7 @@
             }
             
         }
-        if ([@")" isEqualToString:os]) {
+        if ([@")" isEqualToString:operateSymbols[i]]) {
             if (bracket_start < 0) {
                 NSLog(@"process ( or ) error.");
                 return -1;
@@ -231,6 +236,9 @@
         NSMutableArray* vv_tmp_l = [NSMutableArray new];
         
         for (NSInteger i=0; i<operateSymbols.count; i++) {
+            if (i==bracket_start || i==bracket_end) {
+                continue;
+            }
             if (i>bracket_start && i<bracket_end) {
                 [os_tmp_p addObject: operateSymbols[i]];
             }else{
@@ -254,6 +262,7 @@
                 return -1;
             }
             [vv_tmp_l insertObject:[value_tmp_p firstObject] atIndex:bracket_start];
+            [value_tmp_p removeObject:[value_tmp_p firstObject]];
             int rst_tmp_l = [self processAndAssignResultTo:value_tmp_l withOperateSymbols:os_tmp_l valueAndVar:vv_tmp_l localVars:localVars];
             [value addObject:value_tmp_l];
             return rst_tmp_l;
@@ -335,16 +344,28 @@
         }
         
         //
-        [operateSymbols removeObject:[operateSymbols firstObject]];
-        [valueVars removeObject:[valueVars firstObject]];
-        [valueVars removeObject:[valueVars firstObject]];
-        [valueVars insertObject:stringValue atIndex:0];
+        [operateSymbols removeObjectAtIndex:index_mdm];
+        [valueVars removeObjectAtIndex:index_mdm];
+        [valueVars removeObjectAtIndex:index_mdm];
+        [valueVars insertObject:stringValue atIndex:index_mdm]; //
         int mdm_rst = [self processAndAssignResultTo:value withOperateSymbols:operateSymbols valueAndVar:valueVars localVars:localVars];
         return mdm_rst;
     }
     
     // + -
-    if (operateSymbols.count == 0) {
+    if (operateSymbols.count==0&&valueVars.count==1) {
+        NSString* valueVar_tmp = [NSString stringWithString: valueVars[0]];
+        if ([self isVarFormat:valueVar_tmp]) {
+            valueVar_tmp = [NSString stringWithFormat:@"%@", [self valueOfVarByName:valueVar_tmp inLocalVar:localVars]];
+            if (!valueVar_tmp) {
+                NSLog(@"no assign var '%@'", valueVar_tmp);
+                return -1;
+            }
+        }
+        [value insertObject:valueVar_tmp atIndex:0];
+        return 0;
+        
+    }else if (operateSymbols.count == 0) {
         NSLog(@"internal error 001");
         return -1;
     }
