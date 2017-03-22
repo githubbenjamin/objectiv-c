@@ -48,16 +48,23 @@
     NSObject* obj = [[class_type alloc] init];
     
     //    SEL methodImplement = @selector(methodName);
-    if ( [obj respondsToSelector: registerName]){
-        NSLog(@"");
+    if (![obj respondsToSelector: registerName]){
+        NSLog(@"register function error");
         return  -1;
     }
     
-    Method method=class_getInstanceMethod(class_type, @selector(sayHi));
-    class_addMethod(self,sel,method_getImplementation(registerName),method_getTypeEncoding(method));
+    Method method=class_getInstanceMethod(class_type, registerName);
+    class_addMethod(self,sel,method_getImplementation(method), method_getTypeEncoding(method));
     
     return 0;
 }
+
+//+(BOOL)resolveInstanceMethod:(SEL)sel
+//{
+//    Method method=class_getInstanceMethod(self,@selector(sayHi));
+//    class_addMethod(self,sel,method_getImplementation(method),method_getTypeEncoding(method));
+//    return YES;
+//}
 
 +(int)registerFunction:(T_Var*)t_var{
     return 0;
@@ -93,13 +100,14 @@
     NSMutableDictionary* local_vars_func = [NSMutableDictionary new];
     [local_vars_func setObject:g_vars forKey:@"*"]; // set super level envirenment
 #ifdef DEBUG
-    NSString* ep = @"a=1;b=2;var c = 2*(a+1) + b;print(c)";
+//    NSString* ep = @"a=1;b=2;var c = 2*(a+1) + b;print(c)";
 //    NSString* ep = @"a=\"asd\";b=\"ewuu\";var c = a + b;print(c)";
+    NSString* ep = @"a=1;b=2;var c = 2*(a+1) + b;print(c);a+c";
     
     T_Var * fnc01 = [T_Var new];
     fnc01.name_ = @"print";
     fnc01.value_ = @"NSLog"; // use the block
-    [FunctionStack registerFunctionName:@selector(print:) WithObject:[MethodPrint class] Method:@selector(print:)];
+    [FunctionStack registerFunctionName:@selector(print:outPara:) WithObject:[MethodPrint class] Method:@selector(print:outPara:)];
     fnc01.type_ = [NSNumber numberWithInteger:4];
     [g_vars setObject:fnc01 forKey:fnc01.name_];
     
@@ -115,6 +123,12 @@
     [local_vars_func setObject:var02 forKey:var02.name_];
     
 #endif
+    FunctionStack * functionStack = [FunctionStack new];
+    [local_vars_func setObject:functionStack forKey:@"**"];
+    
+    if ([functionStack respondsToSelector:@selector(print:outPara:)]) {
+        NSLog(@"YES, responced. print:outPara: is registed");
+    }
     
     int rst_parseMain = [self parseMainBlock:ep withLocalVars:local_vars_func];
     return rst_parseMain;
@@ -125,18 +139,30 @@
     
     //
     NSArray* logical_lines = [ep componentsSeparatedByString: @";"];
-    for (NSString* ll in logical_lines) {
+    for (NSInteger i=0;i<logical_lines.count;i++) {
+        NSString* ll = logical_lines[i];
         NSString* oneLogicalLine = [ll stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        int rst_oll = [self parseLogicalLine: oneLogicalLine withLocalVars: l_vars];
-        if (rst_oll!=0) {
-            return rst_oll;
+        
+        int mark_if_start = -1;
+        if ([oneLogicalLine hasPrefix:@"if"]) {
+            // if
+            
+        }else if (mark_if_start>=0){
+            continue;
+        }else{
+            // assign and express
+            int rst_oll = [self parseLogicalLine: oneLogicalLine withLocalVars: l_vars];
+            if (rst_oll!=0) {
+                return rst_oll;
+            }
         }
+        
     }
     
     return 0;
 }
 
--(int)parseLogicalLine:(NSString *)express withLocalVars:(NSMutableDictionary *)localVars{
+-(int) parseLogicalLine:(NSString *)express withLocalVars:(NSMutableDictionary *)localVars{
     NSMutableArray* operaterSymbols = [NSMutableArray new];
     NSMutableArray* valueVars = [NSMutableArray new];
     
@@ -146,6 +172,7 @@
     }
     
     // process =
+    
     if ([[operaterSymbols firstObject] isEqualToString:@"="]) {
         NSString* firstValueVar = [valueVars firstObject];
         if ([firstValueVar hasPrefix:@"var "]) {
@@ -155,17 +182,27 @@
         
         T_Var* tmp_var = [T_Var new];
         tmp_var.name_ = firstValueVar;
-        NSMutableArray* value = [NSMutableArray new];
         [operaterSymbols removeObject:[operaterSymbols firstObject]];
         [valueVars removeObject:[valueVars firstObject]];
+        
+        //
+        
+        NSMutableArray* value = [NSMutableArray new];
         int rst = [self processAndAssignResultTo:value withOperateSymbols:operaterSymbols valueAndVar:valueVars localVars:localVars];
         if (value.count!=1) {
-            return -1;
+            return NO;
         }
         tmp_var.value_ = [value firstObject];
         [localVars setObject:tmp_var forKey:tmp_var.name_];
-        NSLog(@"add one to localVar name:%@ value:%@", tmp_var.name_, tmp_var.value_);
+        NSLog(@"info   :add one to localVar name:%@ value:%@", tmp_var.name_, tmp_var.value_);
         return rst;
+    }else if (valueVars.firstObject){
+        NSMutableArray* value = [NSMutableArray new];
+        int rst = [self processAndAssignResultTo:value withOperateSymbols:operaterSymbols valueAndVar:valueVars localVars:localVars];
+        if (rst!=0 || value.count!=1) {
+            return NO;
+        }
+        NSLog(@"console:%@", value.firstObject);
     }
     
     // process if
@@ -262,9 +299,13 @@
                 return -1;
             }
             [vv_tmp_l insertObject:[value_tmp_p firstObject] atIndex:bracket_start];
-            [value_tmp_p removeObject:[value_tmp_p firstObject]];
-            int rst_tmp_l = [self processAndAssignResultTo:value_tmp_l withOperateSymbols:os_tmp_l valueAndVar:vv_tmp_l localVars:localVars];
-            [value addObject:value_tmp_l];
+            [value_tmp_p removeObjectAtIndex:0];
+            [operateSymbols removeAllObjects];
+            [operateSymbols addObjectsFromArray:os_tmp_l];
+            [valueVars removeAllObjects];
+            [valueVars addObjectsFromArray:vv_tmp_l];
+            int rst_tmp_l = [self processAndAssignResultTo:value_tmp_l withOperateSymbols:operateSymbols valueAndVar:valueVars localVars:localVars];
+            [value addObject:[value_tmp_l firstObject]];
             return rst_tmp_l;
             
         }else{
@@ -361,6 +402,18 @@
                 NSLog(@"no assign var '%@'", valueVar_tmp);
                 return -1;
             }
+        }else if ([self isFunctionFormat:valueVar_tmp]){
+            id rst = [self valueOfFunction:valueVar_tmp withLocalVar:localVars];
+            if (rst==nil) {
+                valueVar_tmp=@"NULL";
+            }
+            if ([rst isKindOfClass:[NSString class]]) {
+                valueVar_tmp=[NSString stringWithFormat:@"\"%@\"", rst];
+            }else if([rst isKindOfClass:[NSNumber class]]){
+                valueVar_tmp=[rst stringValue];
+            }else{
+                
+            }
         }
         [value insertObject:valueVar_tmp atIndex:0];
         return 0;
@@ -434,6 +487,7 @@
         return 0;
     }
     
+    
     //    return 0;
 }
 
@@ -475,6 +529,9 @@
      3. > < >=, <=
      4. =
      */
+    
+    //
+    NSSet* bracketSet = [NSSet setWithObjects:@"(",@")", nil];
     NSSet* operateSet = [NSSet setWithObjects:@"(",@")",@"+",@"-",@"*",@"/",@"%",@"==",@">",@"<",@">=",@"<=",@"=", nil];
     NSSet* operateSet2 = [NSSet setWithObjects:@"==",@">",@"<",@">=",@"<=",@"=", nil];
     //    NSMutableArray* operates = [NSMutableArray new];
@@ -490,8 +547,9 @@
     NSInteger quotate_start = -1;
     NSInteger var_start = -1;
     NSInteger var_end = -1;
+    NSString* preChar = nil;
     
-    for (int i=0; i<ep.length; i++) {
+    for (int i=0; i<ep.length; preChar=[ep substringWithRange:NSMakeRange(i, 1)],i++) {
         NSString* cur_char = [ep substringWithRange:NSMakeRange(i, 1)];
         
         if ([cur_char isEqualToString:@" "]) {
@@ -514,6 +572,37 @@
             continue;
         }
         
+        if (var_start>=0&&[cur_char isEqualToString:@"("]&&preChar&& [self isMatchRegularExpression:@"\\w" forString:preChar]) {
+            NSString* str_left = [ep substringFromIndex:i];
+            int index_rb = -1;// matchRightBracket
+            int nested_count = 0;
+            for (int j=0; j<str_left.length; j++) {
+                NSString* cur_char_tmp = [str_left substringWithRange:NSMakeRange(j, 1)];
+                
+                if (j!=0&&[cur_char_tmp isEqualToString:@"("]) {
+                    nested_count++;
+                }
+                if ([cur_char_tmp isEqualToString:@")"]) {
+                    if (nested_count==0) {
+                        index_rb=j;
+                    }else{
+                        nested_count--;
+                    }
+                }
+            }
+            if (index_rb<0) {
+                return NO;
+            }
+            
+            i=i+index_rb;
+//            cur_char = [ep substringWithRange:NSMakeRange(i, 1)];
+            [valVars addObject: [[ep substringWithRange:NSMakeRange(var_start, i+1-var_start)]
+                                 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] ];
+            var_start = -1;
+            var_end = -1;
+
+            continue;
+        }
         // for operate mark
         if ([operateSet containsObject:cur_char]) {
             if ([operateSet2 containsObject:cur_char] && i+1<ep.length &&
@@ -625,6 +714,69 @@
         return YES;
     }
     return NO;
+}
+
+-(BOOL)isFunctionFormat:(NSString*)ep {
+    
+    return [self isMatchRegularExpression:@"^[a-zA-Z_]\\w*(.*)$" forString:ep];
+}
+
+-(id)valueOfFunction:(NSString*)ep withLocalVar:(NSMutableDictionary*)localVars{
+    if (![self isFunctionFormat:ep]) {
+        return nil;
+    }
+    
+    int index_first_bracket = -1;
+    for (int i=0; i<ep.length; i++) {
+        NSString* cur_char_temp = [ep substringWithRange:NSMakeRange(i, 1)];
+        if ([cur_char_temp isEqualToString:@"("]) {
+            index_first_bracket=i;
+        }
+    }
+//    int bracket = [ep ]
+    if (index_first_bracket==-1 || ![ep hasSuffix:@")"]) {
+        return nil;
+    }
+    NSString* func_para = [ep substringWithRange:NSMakeRange(index_first_bracket+1, ep.length-2-index_first_bracket)];
+    NSString* func_name = [ep substringToIndex:index_first_bracket];
+    
+    NSMutableArray* operaterSymbols = [NSMutableArray new];
+    NSMutableArray* valueVars = [NSMutableArray new];
+    
+    if (![self islegalQuotationMarksForExp:func_para SeprateOperateTo:operaterSymbols ValueVarTo:valueVars]) {
+        NSLog(@"not legal for logical line");
+        return nil;
+    }
+    
+    NSMutableArray* value = [NSMutableArray new];
+    int rst = [self processAndAssignResultTo:value withOperateSymbols:operaterSymbols valueAndVar:valueVars localVars:localVars];
+    if (rst!=0 || value.count!=1) {
+        return nil;
+    }
+//    id value_rst = [value firstObject];
+    
+    //
+    FunctionStack* functionStack = [localVars objectForKey:@"**"];
+    if (!functionStack) {
+        NSLog(@"No function stack");
+        return nil;
+    }
+    NSString* func_full_name = [NSString stringWithFormat:@"%@:outPara:", func_name];
+    SEL sl = NSSelectorFromString(func_full_name);
+    if (![functionStack respondsToSelector:sl ]) {
+        return nil;
+    }
+    
+    NSMutableArray* out_para = [NSMutableArray new];
+    id rst_value = [functionStack performSelector:sl withObject:value withObject:out_para];
+    if (out_para.count==0) {
+        return nil;
+    }else if (out_para.count==1){
+        return out_para.firstObject;
+    }else{
+        return nil;
+    }
+//    return nil;
 }
 
 -(void)test{
